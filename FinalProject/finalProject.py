@@ -5,23 +5,34 @@ import ADC
 import ADC2
 import RPi.GPIO as GPIO
 import math
+import DCMotor
+import relay
+import soilMoistureModule
+import thermistor
+import photoresistor
+import threading
+import smtplib
 
 # MQTT config (clientID must be unique within the AWS account)
-clientID = "d7a57c0a-dbde-420f-a697-58197473f5ce"
+clientID = "d7a57c0a-dbde-420f-a697-58197473f5ce"		#Random intergers and strings
 endpoint = "a2um1r67n8s74m-ats.iot.us-east-1.amazonaws.com" #Use the endpoint from the settings page in the IoT console
 port = 8883
-temperatureTopic = "tb/aws/iot/sensors/temperature"
-soilMoistureTopic = "tb/aws/iot/sensors/soilMoisture"
-
+uplinkTopic = "tb/aws/iot/sensors/IOTFinalProjectDevice"
+downlinkTopic = "tb/aws/downlink"
 # Init MQTT client
 mqttc = AWSIoTMQTTClient(clientID)
-mqttc.configureEndpoint(endpoint,port)
-mqttc.configureCredentials("certs/AmazonRootCA1.pem","certs/private.pem.key","certs/certificate.pem.crt")
+
+# Email configuration
+email_sender = "LE2176022@crc-lennox.qc.ca"
+email_password = "em45ns3"
+email_recipient = "munir.khaliqyar@gmail.com"
+
+# Mutex for synchronization
+mutex = threading.Lock()
 
 #Actuators declaration
 ledLight = 13
 waterPump = 12
-fan = 26
 
 def init():
     GPIO.setwarnings(False)
@@ -29,70 +40,169 @@ def init():
     
     ADC.setup()
     ADC2.setup()
+    DCMotor.setup()
+    relay.setup()
+    
     
     GPIO.setup(ledLight,  GPIO.OUT)
     GPIO.setup(waterPump,  GPIO.OUT)
-    GPIO.setup(fan,  GPIO.OUT)
     
+def initializeMQTT():
+    mqttc.configureEndpoint(endpoint,port)
+    mqttc.configureCredentials("certs/AmazonRootCA1.pem","certs/private.pem.key","certs/certificate.pem.crt")
+    
+    # Connect to MQTT
+    mqttc.connect()
+    print("Connect OK!")
+    
+    mqttc.subscribe(downlinkTopic, 1, callback)
+    print("Subscribed to ", downlinkTopic)
+    
+#Get the threshold values from User
+def setThreshold():
+    validTemperatureValue = False
+    validHumidityValue = False
+    
+    global temperatureThreshold
+    global humidityThreshold
+    
+    print(" \nWelcome")
+    print("")
+    while (not validTemperatureValue):
+        temperatureThreshold = input("Set a threshold for temperature: ")
+        if temperatureThreshold.isnumeric():
+            temperatureThreshold = float(temperatureThreshold)
+            validTemperatureValue = True
+        
+    while (not validHumidityValue):
+        humidityThreshold = input("Set a threshold for humidity: ")
+        if humidityThreshold.isnumeric():
+            humidityThreshold = float(humidityThreshold)
+            validHumidityValue = True
+    print("")
+    print("Thank you \n")
+
+#Send email
+def sendEmail(sensorType, sensorValue):
+    emailSubject = f"Alarm: High {sensorType}"
+
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(email_sender, email_password)
+
+        body = f"Alert: High {sensorType} Detected!\nSensor Value: {sensorValue}"
+        emailText = f"Subject: {emailSubject}\n\n{body}"
+
+        server.sendmail(email_sender, email_recipient, emailText)
+        print("Email sent successfully!")
+    except Exception as e:
+        print(f"Error sending email: {e}")
+    finally:
+        server.quit()
+
+#Handle the receiving message
+def callback(client, userdata, message):
+    print(f"Received message on topic {message.topic}: {message.payload}")
+
+#Getting the digital result value of the thermistor voltage
+def getTemperature():
+    global temperature 
+    
+    temperature = checkTemp()
+    print('temperature : %.2f\n' %temperature)
+              
+    with mutex:
+        if temperature >= temperatureThreshold:
+            sendEmail("Temperature", temperature)  # Send email notification
+            DCMotor.run()
+            time.sleep(10)
+            DCMotor.stop()
+        else:
+            DCMotor.stop()
+        
+def getHumidity():
+    global humidity
+
+    humidity= soilMoistureModule.run()
+    print("Humidity: %.2f \n" %humidity)
+    
+    with mutex:
+        if humidity < humidityThreshold:
+            sendEmail("Humidity", humidity)  # Send email notification
+            relay.motor_on()
+            time.sleep(3)
+            relay.motor_off()
+        else:
+            relay.motor_off()
+        
+#Check the state of light and turn on/off the led light
+def getLight():
+    global light
+    
+    light = photoresistor.run()
     
 # Send message to the iot topic
 def send_data(message):
-    mqttc.publish(topic, json.dumps(message), 0)
+    mqttc.publish(uplinkTopic, json.dumps(message), 0)
     print("Message Published")
 
 # Loop until terminated
 def loop():
-    while True:
+    while not stop_event.is_set():
         try:
-            #Getting the digital result value of the voltage
-            thermistorRes = ADC.getADC(1)
-            #print("result: " + str(result))
             
-            #Converting the digital result to analog value
-            thermistorVol = 3.3 * float(thermistorRes) / 255
-            #print("VAnalog: " + str(VAnalog))
+            temperatureThread = threading.Thread(target=getTemperature)
+            temperatureThread.start()
             
-            if thermistorRes != 0 :
-                #Calculating the resistance of the thermistor
-                Rth = ((10000 * 3.3) / thermistorVol) - 10000
-                #print ('Rth : %.2f' %Rth)
-                
-                #Calculating the temperature in kelvin
-                Tk = 1 / (((math.log(Rth/10000))/3455) + (1/(25 + 273.15)))
-                #print("Tk: " + str(Tk))
-                
-                #Calculating the temperature in celsius
-                Tc = Tk - 273.15
-                #print("Temperature: %.2f" %Tc)
-                      
-            #photoresistorRes = ADC.getADC(0)
-            #photoresistorVol = 3.3/255 * photoresistorRes
-            #print("Light: " + str(lightVol))
-            #print("Temp: {:.2f}c".format(Tc))
+            humidityThread = threading.Thread(target=getHumidity)
+            humidityThread.start()
+            
+            lightThread = threading.Thread(target=getLight)
+            lightThread.start()
             
             message = {
-                "val0": str("loaded"),
-                "val1": str("%.2f" %Tc)
-                "val2": str("%.2f" %photoresistorVol)
+                "val0": "loaded",
+                "val1": str("%.2f" %temperature),
+                "val2": str("%.2f" %humidity),
+                "val3": str(light)
             }
 
             # Send data to topic
             send_data(message)
-            time.sleep(3)
+            time.sleep(1)
         except RuntimeError as error:     # Errors happen fairly often, DHT's are hard to read, just keep going
                print(error.args[0])
 
+#Check the thermistor state
+def checkTemp():
+    return thermistor.run()
+
+#Check the humidity
+def checkHumidity():
+    return soilMoistureModule.run()
+    
 # Main
 if __name__ == '__main__':
     print("Starting program...")
     try:
-        # Connect
-        mqttc.connect()
-        print("Connect OK!")
-
+        #Initialize the sensors and the actuators
         init()
+        
+        #Setup the MQTT
+        initializeMQTT()
+        
+        #Set the thresholds
+        setThreshold()
+        
+        # Global event to signal threads to stop
+        stop_event = threading.Event()
+        
         # Main loop called
         loop()
     except KeyboardInterrupt:
-        mqttc.disconnect()
+        #mqttc.disconnect()
+        stop_event.set()
+        GPIO.cleanup()
         exit()
+    
