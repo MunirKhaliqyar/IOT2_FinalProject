@@ -4,6 +4,7 @@ import time
 import ADC
 import ADC2
 import RPi.GPIO as GPIO
+import math
 import DCMotor
 import relay
 import soilMoistureModule
@@ -24,7 +25,7 @@ mqttc = AWSIoTMQTTClient(clientID)
 # Email configuration
 email_sender = "kingoftheworld45678@gmail.com"
 email_password = "pvrd fkge csdb czeg"
-email_recipient = "LE2176022@crc-lennox.qc.ca"
+email_recipient = "gaastudillo@crc-lennox.qc.ca"
 
 # Mutex for synchronization
 mutex = threading.Lock()
@@ -116,7 +117,7 @@ def getTemperature():
             sendEmail("Temperature", temperature)  # Send email notification
             print("Temperature email sent.")
             DCMotor.run()
-            time.sleep(10)
+            time.sleep(30)
             DCMotor.stop()
         else:
             DCMotor.stop()

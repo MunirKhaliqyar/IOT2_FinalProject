@@ -1,11 +1,11 @@
 import RPi.GPIO as GPIO
 import time
 
-channel = 16
+channel = 12
 
 def setup():
     # GPIO setup
-    #GPIO.setmode(GPIO.BCM)
+    GPIO.setmode(GPIO.BCM)
     GPIO.setup(channel, GPIO.OUT)
 
 def motor_on():

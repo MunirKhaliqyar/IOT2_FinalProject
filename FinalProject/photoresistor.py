@@ -24,6 +24,14 @@ def run():
         GPIO.output(PIN_LED, False)
         return "Dark"
 
+def runLed():
+    counter = 3
+    if(counter < 3):
+        GPIO.output(PIN_LED, False)
+        time.sleep(1)
+        GPIO.output(PIN_LED, True)
+        time.sleep(1)
+        counter -= 1
 if __name__ == '__main__':
     init()
     try:
