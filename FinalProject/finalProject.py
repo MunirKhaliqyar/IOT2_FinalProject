@@ -23,9 +23,9 @@ downlinkTopic = "tb/aws/downlink"
 mqttc = AWSIoTMQTTClient(clientID)
 
 # Email configuration
-email_sender = "LE2176022@crc-lennox.qc.ca"
-email_password = "em45ns3"
-email_recipient = "munir.khaliqyar@gmail.com"
+email_sender = "kingoftheworld45678@gmail.com"
+email_password = "king@888"
+email_recipient = "LE2176022@crc-lennox.qc.ca"
 
 # Mutex for synchronization
 mutex = threading.Lock()
@@ -55,8 +55,8 @@ def initializeMQTT():
     mqttc.connect()
     print("Connect OK!")
     
-    mqttc.subscribe(downlinkTopic, 1, callback)
-    print("Subscribed to ", downlinkTopic)
+    #mqttc.subscribe(downlinkTopic, 1, callback)
+    #print("Subscribed to ", downlinkTopic)
     
 #Get the threshold values from User
 def setThreshold():
@@ -115,6 +115,7 @@ def getTemperature():
     with mutex:
         if temperature >= temperatureThreshold:
             sendEmail("Temperature", temperature)  # Send email notification
+            print("Temperature email sent.")
             DCMotor.run()
             time.sleep(10)
             DCMotor.stop()
@@ -130,6 +131,7 @@ def getHumidity():
     with mutex:
         if humidity < humidityThreshold:
             sendEmail("Humidity", humidity)  # Send email notification
+            print("Humidity email sent.")
             relay.motor_on()
             time.sleep(3)
             relay.motor_off()
@@ -161,13 +163,15 @@ def loop():
             lightThread = threading.Thread(target=getLight)
             lightThread.start()
             
+            time.sleep(0.5)
+            
             message = {
-                "val0": "loaded",
-                "val1": str("%.2f" %temperature),
-                "val2": str("%.2f" %humidity),
-                "val3": str(light)
+                "state": "loaded",
+                "temperature": str("%.2f" %temperature),
+                "humidity": str("%.2f" %humidity),
+                "Photoresistor": str(light)
             }
-
+            
             # Send data to topic
             send_data(message)
             time.sleep(1)
